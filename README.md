@@ -6,7 +6,11 @@ A comprehensive web-based crop monitoring system that helps farmers make data-dr
 
 ## 🚀 Live Demo
 
-**Live site:** https://satellite-crop-health.onrender.com
+
+**Live Frontend:** https://crop-health.onrender.com
+**Live Backend API:** https://crop-health-api.onrender.com
+
+**(Update the backend link above if your deployed API URL is different.)**
 
 **Demo credentials:**
 - Username: `demo`

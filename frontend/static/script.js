@@ -1,5 +1,8 @@
 // API Configuration
-const API_BASE_URL = window.location.origin || 'http://localhost:5000';
+// Use deployed backend API for production, fallback to localhost for local dev
+const API_BASE_URL = (window.location.hostname === 'crop-health.onrender.com')
+    ? 'https://crop-health-api.onrender.com' // <-- Replace with your actual backend API URL
+    : (window.location.origin || 'http://localhost:5000');
 
 // Global State
 let currentUser = null;

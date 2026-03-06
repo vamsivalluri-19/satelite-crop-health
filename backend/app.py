@@ -203,11 +203,13 @@ def register():
             'created_at': datetime.utcnow().isoformat()
         }
         result = mongo_users.insert_one(user_doc)
+        # Fetch the inserted user to get the '_id' field
+        inserted_user = mongo_users.find_one({'_id': result.inserted_id})
         logger.info(f"✅ New user registered: {username}")
         return jsonify({
             'status': 'success',
             'message': 'Registration successful!',
-            'user': mongo_user_to_dict(user_doc)
+            'user': mongo_user_to_dict(inserted_user)
         }), 201
     except Exception as e:
         logger.error(f"Registration error: {e}")

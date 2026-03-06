@@ -9,6 +9,10 @@ let currentUser = null;
 let allNotifications = [];
 let weatherMap = null;
 let weatherMapMarker = null;
+let leafletMap = null;
+let leafletMarker = null;
+let googleMapsLoadPromise = null;
+const GOOGLE_MAPS_API_KEY = (document.querySelector('meta[name="google-maps-api-key"]')?.content || '').trim();
 
 // Safe localStorage helpers to prevent tracking prevention errors
 const safeLocalStorage = {
@@ -46,6 +50,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     await checkSession();
     setupEventListeners();
     setupLoginKeyHandlers();
+    window.addEventListener('resize', refreshWeatherMapViewport);
     if (currentUser) {
         loadDashboardData();
     }
@@ -169,6 +174,7 @@ function showApp() {
     const app = document.getElementById('app');
     if (loginPage) loginPage.style.display = 'none';
     if (app) app.style.display = 'flex';
+    updateUserDisplayLabels();
     showPage('dashboard');
 }
 
@@ -210,13 +216,16 @@ function showPage(pageId) {
         } else if (pageId === 'crop-database') {
             setTimeout(() => loadCropDatabase(), 100);
         } else if (pageId === 'weather-location') {
-            setTimeout(() => initializeWeatherMap(), 500);
+            setTimeout(() => initializeWeatherMap(), 200);
+            setTimeout(() => refreshWeatherMapViewport(), 650);
         } else if (pageId === 'recommendations') {
             initializeRecommendationsPage();
         } else if (pageId === 'maintenance') {
             initializeMaintenancePage();
         } else if (pageId === 'soil-health') {
             initializeSoilHealthPage();
+        } else if (pageId === 'advanced-features') {
+            initializeAdvancedFeaturesPage();
         }
     }
     
@@ -277,12 +286,8 @@ async function loadDashboardData() {
         console.warn('No user logged in');
         return;
     }
-    
-    // Update username in dashboard
-    const usernameElement = document.getElementById('dashboard-username');
-    if (usernameElement) {
-        usernameElement.textContent = currentUser.first_name || currentUser.username || 'Farmer';
-    }
+
+    updateUserDisplayLabels();
     
     showLoading(true);
     
@@ -364,6 +369,30 @@ function updateRecentActivity(cropData, diseaseRecords) {
             <div class="timestamp">${formatDate(activity.date)}</div>
         </div>
     `).join('');
+}
+
+function getUserDisplayName() {
+    if (!currentUser) return 'Farmer';
+
+    const firstName = (currentUser.first_name || '').trim();
+    const lastName = (currentUser.last_name || '').trim();
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    return fullName || (currentUser.username || 'Farmer');
+}
+
+function updateUserDisplayLabels() {
+    const displayName = getUserDisplayName();
+
+    const dashboardName = document.getElementById('dashboard-username');
+    if (dashboardName) {
+        dashboardName.textContent = displayName;
+    }
+
+    const sidebarName = document.getElementById('sidebar-username');
+    if (sidebarName) {
+        sidebarName.textContent = displayName;
+    }
 }
 
 // ============ HEALTH CHECK ============
@@ -504,12 +533,33 @@ async function detectDisease() {
         
         try {
             const imageData = e.target.result;
+
+            // Validate image quality first for better model reliability.
+            const qualityResponse = await apiCall('/image-quality-check', 'POST', {
+                image: imageData
+            });
+
+            if (qualityResponse.status !== 'success') {
+                showToast('Image quality check failed. Try another image.', 'warning');
+                return;
+            }
+
+            if (qualityResponse.quality_band === 'Poor') {
+                showToast('Image is too low quality. Please upload a clearer leaf photo.', 'warning');
+                displayDiseaseQualityResult(qualityResponse);
+                return;
+            }
+
             const response = await apiCall('/predict', 'POST', {
                 email: currentUser.email,
                 image: imageData
             });
             
             displayDiseaseResults(response);
+
+            if (qualityResponse.quality_band === 'Fair') {
+                showToast('Image quality is fair. Results may be less accurate.', 'warning');
+            }
         } catch (error) {
             showToast('Failed to detect disease', 'error');
         } finally {
@@ -518,6 +568,29 @@ async function detectDisease() {
     };
     
     reader.readAsDataURL(file);
+}
+
+function displayDiseaseQualityResult(qualityData) {
+    const resultBox = document.getElementById('disease-result');
+    const resultDetails = document.getElementById('disease-details');
+    if (!resultBox || !resultDetails) return;
+
+    const score = qualityData.quality_score ?? 0;
+    const band = qualityData.quality_band || 'Unknown';
+
+    resultDetails.innerHTML = `
+        <div class="result-item" style="border-left-color: #f39c12;">
+            <strong>Image Quality Check:</strong>
+            <span class="value" style="color: #f39c12;">${band} (${score}%)</span>
+        </div>
+        <div class="recommendations">
+            <h4>Photo Improvement Tips:</h4>
+            <ul>
+                ${(qualityData.tips || []).map(t => `<li>${t}</li>`).join('')}
+            </ul>
+        </div>
+    `;
+    resultBox.style.display = 'block';
 }
 
 function displayDiseaseResults(data) {
@@ -772,6 +845,7 @@ async function updateProfile() {
         if (response.status === 'success') {
             currentUser = response.user;
             safeLocalStorage.setItem('user', JSON.stringify(currentUser));
+            updateUserDisplayLabels();
             showToast('Profile updated successfully!', 'success');
         }
     } catch (error) {
@@ -1275,6 +1349,216 @@ function initializeSoilHealthPage() {
     }
 }
 
+function initializeAdvancedFeaturesPage() {
+    const result = document.getElementById('feature-catalog-result');
+    if (result && !result.innerHTML.trim()) {
+        result.innerHTML = '<p class="muted-text">Click "Load Catalog" to view all feature APIs now available.</p>';
+    }
+}
+
+function renderJsonResult(elementId, payload) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    el.innerHTML = `<pre class="json-output">${JSON.stringify(payload, null, 2)}</pre>`;
+}
+
+async function loadFeatureCatalog() {
+    try {
+        const res = await apiCall('/feature-catalog', 'GET');
+        renderJsonResult('feature-catalog-result', res);
+    } catch (error) {
+        showToast('Failed to load feature catalog', 'error');
+    }
+}
+
+async function runDiseaseRiskForecast() {
+    const payload = {
+        humidity: parseFloat(document.getElementById('risk-humidity').value),
+        rainfall_mm: parseFloat(document.getElementById('risk-rainfall').value),
+        temperature: parseFloat(document.getElementById('risk-temp').value),
+        crop_stage: document.getElementById('risk-stage').value
+    };
+    try {
+        const res = await apiCall('/disease-risk-forecast', 'POST', payload);
+        renderJsonResult('disease-risk-result', res);
+    } catch (error) {
+        showToast('Disease risk forecast failed', 'error');
+    }
+}
+
+async function runIrrigationAdvice() {
+    const payload = {
+        soil_moisture_percent: parseFloat(document.getElementById('irr-moisture').value),
+        forecast_rain_mm: parseFloat(document.getElementById('irr-rain').value),
+        crop_type: document.getElementById('irr-crop').value
+    };
+    try {
+        const res = await apiCall('/irrigation-advice', 'POST', payload);
+        renderJsonResult('irrigation-result', res);
+    } catch (error) {
+        showToast('Irrigation advice failed', 'error');
+    }
+}
+
+async function runFertilizerRecommendation() {
+    const payload = {
+        crop: document.getElementById('fert-crop').value,
+        ph_value: parseFloat(document.getElementById('fert-ph').value),
+        nitrogen: parseFloat(document.getElementById('fert-n').value),
+        phosphorus: parseFloat(document.getElementById('fert-p').value),
+        potassium: parseFloat(document.getElementById('fert-k').value)
+    };
+    try {
+        const res = await apiCall('/fertilizer-recommendation', 'POST', payload);
+        renderJsonResult('fertilizer-result', res);
+    } catch (error) {
+        showToast('Fertilizer recommendation failed', 'error');
+    }
+}
+
+async function runYieldPrediction() {
+    const payload = {
+        ndvi: parseFloat(document.getElementById('yield-ndvi').value),
+        season_rainfall_mm: parseFloat(document.getElementById('yield-rain').value),
+        avg_temp: parseFloat(document.getElementById('yield-temp').value),
+        area_hectares: parseFloat(document.getElementById('yield-area').value)
+    };
+    try {
+        const res = await apiCall('/yield-prediction', 'POST', payload);
+        renderJsonResult('yield-result', res);
+    } catch (error) {
+        showToast('Yield prediction failed', 'error');
+    }
+}
+
+async function runProfitEstimate() {
+    const payload = {
+        seed_cost: parseFloat(document.getElementById('cost-seed').value),
+        fertilizer_cost: parseFloat(document.getElementById('cost-fert').value),
+        labor_cost: parseFloat(document.getElementById('cost-labor').value),
+        irrigation_cost: parseFloat(document.getElementById('cost-irr').value),
+        expected_yield_tons: parseFloat(document.getElementById('cost-yield').value),
+        market_price_per_ton: parseFloat(document.getElementById('cost-price').value)
+    };
+    try {
+        const res = await apiCall('/expense-profit-estimate', 'POST', payload);
+        renderJsonResult('profit-result', res);
+    } catch (error) {
+        showToast('Profit estimate failed', 'error');
+    }
+}
+
+async function saveFieldBoundary() {
+    if (!currentUser?.email) {
+        showToast('Please login first', 'warning');
+        return;
+    }
+
+    let coordinates = [];
+    try {
+        coordinates = JSON.parse(document.getElementById('boundary-json').value);
+    } catch (_e) {
+        showToast('Invalid boundary JSON', 'warning');
+        return;
+    }
+
+    const payload = {
+        email: currentUser.email,
+        field_name: document.getElementById('boundary-name').value || 'My Field',
+        coordinates: coordinates,
+        area_hectares: 0
+    };
+
+    try {
+        const res = await apiCall('/field-boundary/save', 'POST', payload);
+        renderJsonResult('boundary-result', res);
+    } catch (error) {
+        showToast('Failed to save boundary', 'error');
+    }
+}
+
+async function loadFieldBoundaries() {
+    if (!currentUser?.email) {
+        showToast('Please login first', 'warning');
+        return;
+    }
+    try {
+        const res = await apiCall(`/field-boundary/list?email=${encodeURIComponent(currentUser.email)}`, 'GET');
+        renderJsonResult('boundary-result', res);
+    } catch (error) {
+        showToast('Failed to load boundaries', 'error');
+    }
+}
+
+async function runImageQualityCheckFromUpload() {
+    const imageInput = document.getElementById('disease-image-input');
+    if (!imageInput || !imageInput.files.length) {
+        showToast('Upload a disease image first', 'warning');
+        return;
+    }
+
+    const file = imageInput.files[0];
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const res = await apiCall('/image-quality-check', 'POST', { image: e.target.result });
+            renderJsonResult('image-quality-result', res);
+        } catch (error) {
+            showToast('Image quality check failed', 'error');
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+async function runIotInsights() {
+    const payload = {
+        soil_moisture_percent: parseFloat(document.getElementById('iot-moisture').value),
+        air_temp: parseFloat(document.getElementById('iot-temp').value),
+        humidity: parseFloat(document.getElementById('iot-humidity').value)
+    };
+    try {
+        const res = await apiCall('/iot-sensor-insights', 'POST', payload);
+        renderJsonResult('iot-result', res);
+    } catch (error) {
+        showToast('IoT insight failed', 'error');
+    }
+}
+
+async function runCommunityBenchmark() {
+    const payload = {
+        ndvi: parseFloat(document.getElementById('bench-ndvi').value),
+        yield_tph: parseFloat(document.getElementById('bench-yield').value)
+    };
+    try {
+        const res = await apiCall('/community-benchmark', 'POST', payload);
+        renderJsonResult('benchmark-result', res);
+    } catch (error) {
+        showToast('Benchmark request failed', 'error');
+    }
+}
+
+async function runVoiceAssistant() {
+    const payload = {
+        language: document.getElementById('voice-language').value,
+        intent: document.getElementById('voice-intent').value
+    };
+    try {
+        const res = await apiCall('/voice-assistant', 'POST', payload);
+        renderJsonResult('voice-result', res);
+    } catch (error) {
+        showToast('Voice assistant failed', 'error');
+    }
+}
+
+async function runAdminAnalytics() {
+    try {
+        const res = await apiCall('/admin-analytics', 'GET');
+        renderJsonResult('admin-result', res);
+    } catch (error) {
+        showToast('Admin analytics failed', 'error');
+    }
+}
+
 // Get Weather by Location
 async function getWeatherByLocation() {
     const latitude = document.getElementById('location-latitude').value;
@@ -1345,22 +1629,202 @@ async function getWeatherByLocation() {
 
 // ============ GOOGLE MAPS INTEGRATION ============
 
-function initializeWeatherMap() {
+function showMapFallbackMessage(title, message, isError = false) {
+    const mapElement = document.getElementById('weather-map');
+    if (!mapElement) return;
+
+    const iconClass = isError ? 'fa-exclamation-triangle' : 'fa-map-marked-alt';
+    const bgColor = isError ? '#ffebee' : '#f5f5f5';
+    const titleColor = isError ? '#c62828' : '#666';
+
+    mapElement.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; background: ${bgColor}; border-radius: 8px; flex-direction: column; padding: 2rem; text-align: center;">
+            <i class="fas ${iconClass}" style="font-size: 3rem; color: #777; margin-bottom: 1rem;"></i>
+            <h3 style="color: ${titleColor}; margin: 0;">${title}</h3>
+            <p style="color: #777; margin-top: 0.5rem;">${message}</p>
+        </div>
+    `;
+}
+
+function loadGoogleMapsApi() {
+    if (!GOOGLE_MAPS_API_KEY) {
+        return Promise.resolve(false);
+    }
+
+    if (typeof google !== 'undefined' && google.maps) {
+        return Promise.resolve(true);
+    }
+
+    if (googleMapsLoadPromise) {
+        return googleMapsLoadPromise;
+    }
+
+    googleMapsLoadPromise = new Promise((resolve) => {
+        const existing = document.querySelector('script[data-google-maps="true"]');
+        if (existing) {
+            existing.addEventListener('load', () => resolve(typeof google !== 'undefined' && !!google.maps));
+            existing.addEventListener('error', () => resolve(false));
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}&libraries=places&loading=async`;
+        script.async = true;
+        script.defer = true;
+        script.dataset.googleMaps = 'true';
+
+        window.gm_authFailure = function() {
+            console.error('Google Maps authentication failed. Check key, billing, and referrer settings.');
+            resolve(false);
+        };
+
+        script.onload = () => resolve(typeof google !== 'undefined' && !!google.maps);
+        script.onerror = () => resolve(false);
+        document.head.appendChild(script);
+    });
+
+    return googleMapsLoadPromise;
+}
+
+async function reverseGeocodeWithNominatim(lat, lng) {
+    try {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`;
+        const response = await fetch(url, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            return '';
+        }
+        const data = await response.json();
+        return data.display_name || '';
+    } catch (error) {
+        console.warn('Reverse geocode failed:', error);
+        return '';
+    }
+}
+
+function bindLeafletSearch() {
+    const searchInput = document.getElementById('map-search-input');
+    if (!searchInput) return;
+
+    const onSearch = async (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+
+        const query = searchInput.value.trim();
+        if (!query || !leafletMap) return;
+
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=1`;
+            const response = await fetch(url, {
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            const results = await response.json();
+
+            if (!Array.isArray(results) || results.length === 0) {
+                showToast('Location not found. Please try another search.', 'warning');
+                return;
+            }
+
+            const result = results[0];
+            const lat = parseFloat(result.lat);
+            const lng = parseFloat(result.lon);
+
+            if (leafletMarker) {
+                leafletMarker.setLatLng([lat, lng]);
+            } else {
+                leafletMarker = L.marker([lat, lng]).addTo(leafletMap);
+            }
+
+            leafletMap.setView([lat, lng], 12);
+            document.getElementById('location-latitude').value = lat.toFixed(4);
+            document.getElementById('location-longitude').value = lng.toFixed(4);
+            document.getElementById('location-name').value = result.display_name || query;
+            showToast('Location selected on map', 'success');
+        } catch (error) {
+            console.error('Leaflet search failed:', error);
+            showToast('Search failed. Try manual coordinates.', 'warning');
+        }
+    };
+
+    searchInput.removeEventListener('keydown', onSearch);
+    searchInput.addEventListener('keydown', onSearch);
+}
+
+function initializeLeafletMap() {
+    const mapElement = document.getElementById('weather-map');
+    if (!mapElement) return;
+
+    if (typeof L === 'undefined') {
+        showMapFallbackMessage('Map Currently Unavailable', 'Please use manual coordinates entry below');
+        return;
+    }
+
+    if (weatherMap && typeof weatherMap.remove === 'function') {
+        weatherMap.remove();
+        weatherMap = null;
+    }
+
+    if (leafletMap) {
+        leafletMap.invalidateSize();
+        return;
+    }
+
+    leafletMap = L.map(mapElement, {
+        center: [20.5937, 78.9629],
+        zoom: 5,
+        zoomControl: true
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(leafletMap);
+
+    leafletMap.on('click', async (event) => {
+        const lat = event.latlng.lat;
+        const lng = event.latlng.lng;
+
+        if (leafletMarker) {
+            leafletMarker.setLatLng([lat, lng]);
+        } else {
+            leafletMarker = L.marker([lat, lng]).addTo(leafletMap);
+        }
+
+        document.getElementById('location-latitude').value = lat.toFixed(4);
+        document.getElementById('location-longitude').value = lng.toFixed(4);
+
+        const locationName = await reverseGeocodeWithNominatim(lat, lng);
+        if (locationName) {
+            document.getElementById('location-name').value = locationName;
+        }
+
+        showToast(`Location selected: ${lat.toFixed(4)}, ${lng.toFixed(4)}`, 'success');
+    });
+
+    bindLeafletSearch();
+    setTimeout(() => leafletMap.invalidateSize(), 200);
+    console.log('Leaflet fallback map initialized');
+}
+
+async function initializeWeatherMap() {
     console.log('🗺️ Initializing Google Maps...');
+
+    if (weatherMap && typeof google !== 'undefined' && google.maps) {
+        refreshWeatherMapViewport();
+        return;
+    }
+
+    const googleLoaded = await loadGoogleMapsApi();
     
     // Check if Google Maps API is loaded
-    if (typeof google === 'undefined' || !google.maps) {
-        console.warn('⚠️ Google Maps API not loaded');
-        const mapElement = document.getElementById('weather-map');
-        if (mapElement) {
-            mapElement.innerHTML = `
-                <div style="display: flex; align-items: center; justify-content: center; height: 100%; background: #f5f5f5; border-radius: 8px; flex-direction: column; padding: 2rem; text-align: center;">
-                    <i class="fas fa-map-marked-alt" style="font-size: 3rem; color: #999; margin-bottom: 1rem;"></i>
-                    <h3 style="color: #666; margin: 0;">Map Currently Unavailable</h3>
-                    <p style="color: #999; margin-top: 0.5rem;">Please use manual coordinates entry below</p>
-                </div>
-            `;
-        }
+    if (!googleLoaded || typeof google === 'undefined' || !google.maps) {
+        console.warn('⚠️ Google Maps API not loaded, switching to OpenStreetMap fallback');
+        initializeLeafletMap();
         return;
     }
     
@@ -1385,6 +1849,12 @@ function initializeWeatherMap() {
         });
         
         console.log('✅ Map created successfully');
+
+        if (leafletMap) {
+            leafletMap.remove();
+            leafletMap = null;
+            leafletMarker = null;
+        }
         
         // Add click listener to map
         weatherMap.addListener('click', function(event) {
@@ -1467,17 +1937,23 @@ function initializeWeatherMap() {
         }
         
         console.log('✅ Google Maps initialized successfully');
+        setTimeout(() => refreshWeatherMapViewport(), 200);
     } catch (error) {
         console.error('❌ Error initializing map:', error);
-        const mapElement = document.getElementById('weather-map');
-        if (mapElement) {
-            mapElement.innerHTML = `
-                <div style="display: flex; align-items: center; justify-content: center; height: 100%; background: #ffebee; border-radius: 8px; flex-direction: column; padding: 2rem; text-align: center;">
-                    <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #e74c3c; margin-bottom: 1rem;"></i>
-                    <h3 style="color: #c62828; margin: 0;">Map Initialization Error</h3>
-                    <p style="color: #666; margin-top: 0.5rem;">Please use manual coordinates entry below</p>
-                </div>
-            `;
+        showMapFallbackMessage('Map Initialization Error', 'Switching to OpenStreetMap fallback', true);
+        initializeLeafletMap();
+    }
+}
+
+function refreshWeatherMapViewport() {
+    if (leafletMap) {
+        leafletMap.invalidateSize();
+    }
+
+    if (weatherMap && typeof google !== 'undefined' && google.maps) {
+        google.maps.event.trigger(weatherMap, 'resize');
+        if (weatherMapMarker) {
+            weatherMap.setCenter(weatherMapMarker.getPosition());
         }
     }
 }
@@ -1502,7 +1978,7 @@ function setLocation(lat, lng, name) {
     document.getElementById('location-longitude').value = lng;
     document.getElementById('location-name').value = name;
     
-    // Update map if initialized
+    // Update Google map if initialized
     if (weatherMap) {
         const location = { lat: lat, lng: lng };
         weatherMap.setCenter(location);
@@ -1517,6 +1993,16 @@ function setLocation(lat, lng, name) {
                 map: weatherMap,
                 title: name
             });
+        }
+    }
+
+    // Update Leaflet map if initialized
+    if (leafletMap) {
+        leafletMap.setView([lat, lng], 10);
+        if (leafletMarker) {
+            leafletMarker.setLatLng([lat, lng]);
+        } else {
+            leafletMarker = L.marker([lat, lng]).addTo(leafletMap);
         }
     }
     

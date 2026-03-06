@@ -7,9 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="google-maps-api-key" content="{{ google_maps_api_key }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&libraries=places&loading=async" async defer></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 </head>
 <body>
     <!-- Login Page -->
@@ -141,6 +142,10 @@
                         <i class="fas fa-leaf"></i>
                         <span>Soil</span>
                     </a>
+                    <a href="#" class="nav-item" onclick="showPage('advanced-features')">
+                        <i class="fas fa-rocket"></i>
+                        <span>Advanced</span>
+                    </a>
                 </div>
 
                 <div class="menu-section">
@@ -254,6 +259,29 @@
                         <h2>Recent Activity</h2>
                         <div id="recent-list" class="activity-list">
                             <p class="empty-state">No recent activity</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-roadmap">
+                        <h2>All Feature Roadmap</h2>
+                        <p class="feature-roadmap-subtitle">Current and upcoming capabilities planned for this platform.</p>
+                        <div class="feature-roadmap-grid">
+                            <div class="roadmap-item"><i class="fas fa-satellite"></i> Real NDVI Satellite Integration</div>
+                            <div class="roadmap-item"><i class="fas fa-draw-polygon"></i> Field Boundary Upload (GeoJSON/KML)</div>
+                            <div class="roadmap-item"><i class="fas fa-bug"></i> Pest and Disease Risk Forecast</div>
+                            <div class="roadmap-item"><i class="fas fa-tint"></i> Irrigation Advisory Engine</div>
+                            <div class="roadmap-item"><i class="fas fa-flask"></i> Fertilizer Recommendation Module</div>
+                            <div class="roadmap-item"><i class="fas fa-chart-line"></i> Yield Prediction</div>
+                            <div class="roadmap-item"><i class="fas fa-language"></i> Multi-language Interface</div>
+                            <div class="roadmap-item"><i class="fas fa-mobile-alt"></i> Mobile-first PWA + Offline Mode</div>
+                            <div class="roadmap-item"><i class="fas fa-bell"></i> SMS and WhatsApp Alerts</div>
+                            <div class="roadmap-item"><i class="fas fa-camera"></i> Image Quality Validation</div>
+                            <div class="roadmap-item"><i class="fas fa-wallet"></i> Farm Expense and Profit Tracker</div>
+                            <div class="roadmap-item"><i class="fas fa-user-shield"></i> Admin Analytics Dashboard</div>
+                            <div class="roadmap-item"><i class="fas fa-helicopter"></i> Drone Imagery Integration</div>
+                            <div class="roadmap-item"><i class="fas fa-microchip"></i> IoT Sensor Integration</div>
+                            <div class="roadmap-item"><i class="fas fa-users"></i> Farmer Community Benchmarking</div>
+                            <div class="roadmap-item"><i class="fas fa-microphone"></i> Voice Assistant in Local Languages</div>
                         </div>
                     </div>
                 </div>
@@ -1037,6 +1065,157 @@
                     </div>
                 </div>
             </div>
+
+            <div id="advanced-features" class="page" style="display: none;">
+                <div class="page-header">
+                    <h1><i class="fas fa-rocket"></i> Advanced Features Lab</h1>
+                    <p>Run all newly added smart farming feature endpoints from one place.</p>
+                </div>
+
+                <div class="section-intro advanced-intro">
+                    <div class="intro-item">
+                        <h4>API Playground</h4>
+                        <p>Test each smart feature endpoint and inspect JSON output instantly.</p>
+                    </div>
+                    <div class="intro-item">
+                        <h4>Decision Tools</h4>
+                        <p>Risk, irrigation, fertilizer, and yield blocks are tuned for quick farm decisions.</p>
+                    </div>
+                    <div class="intro-item">
+                        <h4>MVP to Production</h4>
+                        <p>All sections are functional now and ready for deeper model/data integrations.</p>
+                    </div>
+                </div>
+
+                <div class="advanced-grid">
+                    <div class="card content-card">
+                        <h3><i class="fas fa-list"></i> Feature Catalog</h3>
+                        <button class="btn btn-primary" onclick="loadFeatureCatalog()">Load Catalog</button>
+                        <div id="feature-catalog-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-chart-area"></i> Disease Risk Forecast</h3>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Humidity %</label><input id="risk-humidity" type="number" value="72"></div>
+                            <div class="form-group"><label>Rainfall mm</label><input id="risk-rainfall" type="number" value="8"></div>
+                            <div class="form-group"><label>Temperature C</label><input id="risk-temp" type="number" value="29"></div>
+                            <div class="form-group"><label>Crop Stage</label><select id="risk-stage"><option>seedling</option><option selected>vegetative</option><option>flowering</option><option>maturity</option></select></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="runDiseaseRiskForecast()">Forecast Risk</button>
+                        <div id="disease-risk-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-tint"></i> Irrigation Advice</h3>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Soil Moisture %</label><input id="irr-moisture" type="number" value="31"></div>
+                            <div class="form-group"><label>Forecast Rain mm</label><input id="irr-rain" type="number" value="4"></div>
+                            <div class="form-group"><label>Crop</label><select id="irr-crop"><option>wheat</option><option>rice</option><option>maize</option><option>soybean</option></select></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="runIrrigationAdvice()">Get Advice</button>
+                        <div id="irrigation-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-flask"></i> Fertilizer Recommendation</h3>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Crop</label><select id="fert-crop"><option>wheat</option><option>rice</option><option>maize</option></select></div>
+                            <div class="form-group"><label>pH</label><input id="fert-ph" type="number" value="6.8" step="0.1"></div>
+                            <div class="form-group"><label>N</label><input id="fert-n" type="number" value="40"></div>
+                            <div class="form-group"><label>P</label><input id="fert-p" type="number" value="30"></div>
+                            <div class="form-group"><label>K</label><input id="fert-k" type="number" value="25"></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="runFertilizerRecommendation()">Recommend NPK</button>
+                        <div id="fertilizer-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-chart-line"></i> Yield Prediction</h3>
+                        <div class="form-grid">
+                            <div class="form-group"><label>NDVI</label><input id="yield-ndvi" type="number" value="0.62" step="0.01"></div>
+                            <div class="form-group"><label>Rainfall mm</label><input id="yield-rain" type="number" value="640"></div>
+                            <div class="form-group"><label>Avg Temp C</label><input id="yield-temp" type="number" value="27"></div>
+                            <div class="form-group"><label>Area (ha)</label><input id="yield-area" type="number" value="2.5" step="0.1"></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="runYieldPrediction()">Predict Yield</button>
+                        <div id="yield-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-wallet"></i> Expense and Profit</h3>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Seed Cost</label><input id="cost-seed" type="number" value="12000"></div>
+                            <div class="form-group"><label>Fertilizer Cost</label><input id="cost-fert" type="number" value="9000"></div>
+                            <div class="form-group"><label>Labor Cost</label><input id="cost-labor" type="number" value="15000"></div>
+                            <div class="form-group"><label>Irrigation Cost</label><input id="cost-irr" type="number" value="5000"></div>
+                            <div class="form-group"><label>Expected Tons</label><input id="cost-yield" type="number" value="14" step="0.1"></div>
+                            <div class="form-group"><label>Price/Ton</label><input id="cost-price" type="number" value="3200"></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="runProfitEstimate()">Estimate Profit</button>
+                        <div id="profit-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-vector-square"></i> Save Field Boundary (MVP)</h3>
+                        <div class="form-group">
+                            <label>Field Name</label>
+                            <input id="boundary-name" type="text" value="Demo Field">
+                        </div>
+                        <div class="form-group">
+                            <label>Coordinates JSON (array)</label>
+                            <textarea id="boundary-json" rows="4">[[17.385,78.4867],[17.386,78.487],[17.3845,78.488]]</textarea>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveFieldBoundary()">Save Boundary</button>
+                        <button class="btn btn-secondary" onclick="loadFieldBoundaries()">Load Boundaries</button>
+                        <div id="boundary-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-image"></i> Image Quality Check</h3>
+                        <p class="muted-text">Uses the uploaded disease image from Disease Detection page.</p>
+                        <button class="btn btn-primary" onclick="runImageQualityCheckFromUpload()">Check Upload Quality</button>
+                        <div id="image-quality-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-microchip"></i> IoT Sensor Insights</h3>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Soil Moisture %</label><input id="iot-moisture" type="number" value="29"></div>
+                            <div class="form-group"><label>Air Temp C</label><input id="iot-temp" type="number" value="36"></div>
+                            <div class="form-group"><label>Humidity %</label><input id="iot-humidity" type="number" value="65"></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="runIotInsights()">Analyze Sensors</button>
+                        <div id="iot-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-users"></i> Community Benchmark</h3>
+                        <div class="form-grid">
+                            <div class="form-group"><label>NDVI</label><input id="bench-ndvi" type="number" value="0.61" step="0.01"></div>
+                            <div class="form-group"><label>Yield t/ha</label><input id="bench-yield" type="number" value="5.2" step="0.1"></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="runCommunityBenchmark()">Compare</button>
+                        <div id="benchmark-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-microphone"></i> Voice Assistant</h3>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Language</label><select id="voice-language"><option value="en">English</option><option value="te">Telugu</option><option value="hi">Hindi</option></select></div>
+                            <div class="form-group"><label>Intent</label><select id="voice-intent"><option value="general_help">General Help</option><option value="irrigation">Irrigation</option><option value="disease">Disease</option></select></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="runVoiceAssistant()">Get Voice Text</button>
+                        <div id="voice-result" class="result-mt"></div>
+                    </div>
+
+                    <div class="card content-card">
+                        <h3><i class="fas fa-chart-pie"></i> Admin Analytics</h3>
+                        <button class="btn btn-primary" onclick="runAdminAnalytics()">Load Analytics</button>
+                        <div id="admin-result" class="result-mt"></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1060,6 +1239,7 @@
         </div>
     </div>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

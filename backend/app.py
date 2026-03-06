@@ -3,11 +3,17 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_session import Session
 import os
+import io
+import base64
 from datetime import datetime, timedelta
 import logging
 import hashlib
+# MongoDB imports
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 import secrets
 import json
+from PIL import Image, ImageStat
 
 # Use relative imports for backend modules
 from .satellite_data import get_ndvi, get_satellite_imagery
@@ -36,44 +42,34 @@ Session(app)
 # Configure Database
 db_dir = os.path.join(os.path.dirname(__file__), 'database')
 os.makedirs(db_dir, exist_ok=True)
+# SQLAlchemy setup remains for other models
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_dir}/crop_data.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# Database Models
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    first_name = db.Column(db.String(100))
-    last_name = db.Column(db.String(100))
-    location = db.Column(db.String(200))
-    phone = db.Column(db.String(15))
-    crop_type = db.Column(db.String(100))
-    field_area = db.Column(db.Float)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    def set_password(self, password):
-        self.password_hash = hashlib.sha256(password.encode()).hexdigest()
-    
-    def check_password(self, password):
-        return self.password_hash == hashlib.sha256(password.encode()).hexdigest()
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'username': self.username,
-            'email': self.email,
-            'first_name': self.first_name,
-            'last_name': self.last_name,
-            'location': self.location,
-            'phone': self.phone,
-            'crop_type': self.crop_type,
-            'field_area': self.field_area,
-            'created_at': self.created_at.isoformat()
-        }
+# MongoDB setup
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+mongo_client = MongoClient(MONGO_URI)
+mongo_db = mongo_client['crop_health']
+mongo_users = mongo_db['users']
+
+# User model for MongoDB
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def mongo_user_to_dict(user):
+    return {
+        'id': str(user.get('_id')),
+        'username': user.get('username'),
+        'email': user.get('email'),
+        'first_name': user.get('first_name'),
+        'last_name': user.get('last_name'),
+        'location': user.get('location'),
+        'phone': user.get('phone'),
+        'crop_type': user.get('crop_type'),
+        'field_area': user.get('field_area'),
+        'created_at': user.get('created_at')
+    }
 
 class CropData(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -90,6 +86,15 @@ class DiseaseRecord(db.Model):
     disease = db.Column(db.String(100))
     confidence = db.Column(db.Float)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class FieldBoundary(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(100), nullable=False)
+    field_name = db.Column(db.String(120), nullable=False)
+    boundary_json = db.Column(db.Text, nullable=False)
+    area_hectares = db.Column(db.Float, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # Initialize Database
 with app.app_context():
@@ -127,7 +132,10 @@ with app.app_context():
 def home():
     """Serve the main HTML page"""
     try:
-        return render_template('index.html')
+        return render_template(
+            'index.html',
+            google_maps_api_key=os.getenv('GOOGLE_MAPS_API_KEY', '').strip()
+        )
     except Exception as e:
         logger.error(f"Error loading index.html: {e}")
         return jsonify({'error': 'Failed to load page'}), 500
@@ -175,35 +183,33 @@ def register():
         if len(password) < 6:
             return jsonify({'error': 'Password must be at least 6 characters'}), 400
         
-        # Check if user already exists
-        if User.query.filter_by(username=username).first():
+        # Check if user already exists in MongoDB
+        if mongo_users.find_one({'username': username}):
             return jsonify({'error': 'Username already exists'}), 400
-        
-        if User.query.filter_by(email=email).first():
+        if mongo_users.find_one({'email': email}):
             return jsonify({'error': 'Email already registered'}), 400
-        
-        # Create new user
-        new_user = User(
-            username=username,
-            email=email,
-            first_name=first_name,
-            last_name=last_name
-        )
-        new_user.set_password(password)
-        
-        db.session.add(new_user)
-        db.session.commit()
-        
+
+        # Create new user in MongoDB
+        user_doc = {
+            'username': username,
+            'email': email,
+            'password_hash': hash_password(password),
+            'first_name': first_name,
+            'last_name': last_name,
+            'location': '',
+            'phone': '',
+            'crop_type': '',
+            'field_area': 0.0,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        result = mongo_users.insert_one(user_doc)
         logger.info(f"✅ New user registered: {username}")
-        
         return jsonify({
             'status': 'success',
             'message': 'Registration successful!',
-            'user': new_user.to_dict()
+            'user': mongo_user_to_dict(user_doc)
         }), 201
-    
     except Exception as e:
-        db.session.rollback()
         logger.error(f"Registration error: {e}")
         return jsonify({'error': str(e)}), 500
 
@@ -219,24 +225,19 @@ def login():
         username = data.get('username').strip()
         password = data.get('password')
         
-        user = User.query.filter_by(username=username).first()
-        
-        if not user or not user.check_password(password):
+        user = mongo_users.find_one({'username': username})
+        if not user or user.get('password_hash') != hash_password(password):
             return jsonify({'error': 'Invalid username or password'}), 401
-        
-        session['user_id'] = user.id
-        session['username'] = user.username
+        session['user_id'] = str(user['_id'])
+        session['username'] = user['username']
         session.permanent = True
         app.permanent_session_lifetime = timedelta(days=30)
-        
         logger.info(f"✅ User logged in: {username}")
-        
         return jsonify({
             'status': 'success',
             'message': 'Login successful!',
-            'user': user.to_dict()
+            'user': mongo_user_to_dict(user)
         }), 200
-    
     except Exception as e:
         logger.error(f"Login error: {e}")
         return jsonify({'error': str(e)}), 500
@@ -257,19 +258,16 @@ def check_session():
     """Check if user is logged in"""
     try:
         user_id = session.get('user_id')
-        
         if not user_id:
             return jsonify({'status': 'not_authenticated', 'logged_in': False}), 200
-        
-        user = User.query.get(user_id)
+        user = mongo_users.find_one({'_id': ObjectId(user_id)})
         if not user:
             session.clear()
             return jsonify({'status': 'not_authenticated', 'logged_in': False}), 200
-        
         return jsonify({
             'status': 'authenticated',
             'logged_in': True,
-            'user': user.to_dict()
+            'user': mongo_user_to_dict(user)
         }), 200
     
     except Exception as e:
@@ -281,47 +279,40 @@ def profile():
     """Get or update user profile"""
     try:
         user_id = session.get('user_id')
-        
         if not user_id:
             return jsonify({'error': 'Not authenticated'}), 401
-        
-        user = User.query.get(user_id)
+        user = mongo_users.find_one({'_id': ObjectId(user_id)})
         if not user:
             return jsonify({'error': 'User not found'}), 404
-        
         if request.method == 'GET':
             return jsonify({
                 'status': 'success',
-                'user': user.to_dict()
+                'user': mongo_user_to_dict(user)
             }), 200
-        
         # PUT - Update profile
         data = request.get_json()
-        
+        update_fields = {}
         if 'first_name' in data:
-            user.first_name = data['first_name'].strip()
+            update_fields['first_name'] = data['first_name'].strip()
         if 'last_name' in data:
-            user.last_name = data['last_name'].strip()
+            update_fields['last_name'] = data['last_name'].strip()
         if 'location' in data:
-            user.location = data['location'].strip()
+            update_fields['location'] = data['location'].strip()
         if 'phone' in data:
-            user.phone = data['phone'].strip()
+            update_fields['phone'] = data['phone'].strip()
         if 'crop_type' in data:
-            user.crop_type = data['crop_type'].strip()
+            update_fields['crop_type'] = data['crop_type'].strip()
         if 'field_area' in data:
-            user.field_area = float(data['field_area'])
-        
-        user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        logger.info(f"✅ Profile updated: {user.username}")
-        
+            update_fields['field_area'] = float(data['field_area'])
+        update_fields['updated_at'] = datetime.utcnow().isoformat()
+        mongo_users.update_one({'_id': ObjectId(user_id)}, {'$set': update_fields})
+        user = mongo_users.find_one({'_id': ObjectId(user_id)})
+        logger.info(f"✅ Profile updated: {user['username']}")
         return jsonify({
             'status': 'success',
             'message': 'Profile updated!',
-            'user': user.to_dict()
+            'user': mongo_user_to_dict(user)
         }), 200
-    
     except Exception as e:
         db.session.rollback()
         logger.error(f"Profile error: {e}")
@@ -836,6 +827,416 @@ def soil_health():
     
     except Exception as e:
         logger.error(f"Error in soil_health: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== ADVANCED FEATURES (MVP) ====================
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def _decode_base64_image(image_data):
+    if not image_data:
+        return None
+    try:
+        payload = image_data.split(',', 1)[1] if ',' in image_data else image_data
+        raw = base64.b64decode(payload)
+        return Image.open(io.BytesIO(raw)).convert('RGB')
+    except Exception:
+        return None
+
+
+@app.route('/feature-catalog', methods=['GET'])
+def feature_catalog():
+    """Return all supported and roadmap features in one API."""
+    return jsonify({
+        'status': 'success',
+        'features': [
+            'Real NDVI Satellite Integration (MVP proxy)',
+            'Field Boundary Upload and Storage',
+            'Pest and Disease Risk Forecast',
+            'Irrigation Advisory Engine',
+            'Fertilizer Recommendation Module',
+            'Yield Prediction',
+            'Multi-language Response Support',
+            'Mobile/PWA readiness',
+            'SMS/WhatsApp Alert readiness',
+            'Image Quality Validation',
+            'Farm Expense and Profit Tracking',
+            'Admin Analytics Dashboard',
+            'IoT Sensor Insight Endpoint',
+            'Community Benchmark Endpoint',
+            'Voice Assistant Endpoint',
+            'Drone Snapshot readiness endpoint'
+        ]
+    })
+
+
+@app.route('/field-boundary/save', methods=['POST'])
+def save_field_boundary():
+    """Store field boundary as coordinate array (GeoJSON-like list)."""
+    try:
+        data = request.get_json() or {}
+        email = (data.get('email') or '').strip()
+        field_name = (data.get('field_name') or 'My Field').strip()
+        coordinates = data.get('coordinates') or []
+        area_hectares = _safe_float(data.get('area_hectares'), 0.0)
+
+        if not email:
+            return jsonify({'error': 'Missing email'}), 400
+        if not isinstance(coordinates, list) or len(coordinates) < 3:
+            return jsonify({'error': 'Coordinates must be an array with at least 3 points'}), 400
+
+        record = FieldBoundary(
+            email=email,
+            field_name=field_name,
+            boundary_json=json.dumps(coordinates),
+            area_hectares=area_hectares if area_hectares > 0 else None
+        )
+        db.session.add(record)
+        db.session.commit()
+
+        return jsonify({'status': 'success', 'message': 'Field boundary saved', 'id': record.id})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in save_field_boundary: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/field-boundary/list', methods=['GET'])
+def list_field_boundaries():
+    """List all field boundaries for a user."""
+    try:
+        email = request.args.get('email', '').strip()
+        if not email:
+            return jsonify({'error': 'Missing email'}), 400
+
+        rows = FieldBoundary.query.filter_by(email=email).order_by(FieldBoundary.created_at.desc()).all()
+        return jsonify({
+            'status': 'success',
+            'fields': [{
+                'id': r.id,
+                'field_name': r.field_name,
+                'coordinates': json.loads(r.boundary_json),
+                'area_hectares': r.area_hectares,
+                'created_at': r.created_at.isoformat()
+            } for r in rows]
+        })
+    except Exception as e:
+        logger.error(f"Error in list_field_boundaries: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/disease-risk-forecast', methods=['POST'])
+def disease_risk_forecast():
+    """Predict near-term disease risk from humidity, rain, temperature and crop stage."""
+    try:
+        data = request.get_json() or {}
+        humidity = _safe_float(data.get('humidity'), 60)
+        rainfall = _safe_float(data.get('rainfall_mm'), 2)
+        temperature = _safe_float(data.get('temperature'), 28)
+        stage = (data.get('crop_stage') or 'vegetative').lower()
+
+        stage_factor = {'seedling': 1.15, 'vegetative': 1.0, 'flowering': 1.2, 'maturity': 0.9}.get(stage, 1.0)
+        raw_score = ((humidity * 0.5) + (rainfall * 1.2) + max(0, 32 - abs(temperature - 28)) * 2.0) * stage_factor
+        risk_pct = round(_clamp(raw_score, 0, 100), 1)
+
+        band = 'Low'
+        if risk_pct >= 70:
+            band = 'High'
+        elif risk_pct >= 40:
+            band = 'Moderate'
+
+        return jsonify({
+            'status': 'success',
+            'risk_percent': risk_pct,
+            'risk_band': band,
+            'advice': [
+                'Increase field scouting frequency when humidity remains high',
+                'Avoid overhead irrigation during evening hours',
+                'Use preventive fungicide spray if risk is High'
+            ]
+        })
+    except Exception as e:
+        logger.error(f"Error in disease_risk_forecast: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/irrigation-advice', methods=['POST'])
+def irrigation_advice():
+    """Provide irrigation recommendation from forecast rain and soil moisture."""
+    try:
+        data = request.get_json() or {}
+        soil_moisture = _safe_float(data.get('soil_moisture_percent'), 35)
+        forecast_rain = _safe_float(data.get('forecast_rain_mm'), 0)
+        crop_type = (data.get('crop_type') or 'general').lower()
+
+        target = 45
+        if crop_type in ('rice', 'sugarcane'):
+            target = 60
+        elif crop_type in ('wheat', 'maize', 'soybean'):
+            target = 45
+
+        deficit = max(0, target - soil_moisture)
+        adjustment = max(0, deficit - (forecast_rain * 0.6))
+        liters_per_m2 = round(adjustment * 1.5, 2)
+
+        return jsonify({
+            'status': 'success',
+            'target_moisture_percent': target,
+            'recommended_liters_per_m2': liters_per_m2,
+            'recommended_timing': 'Early morning',
+            'note': 'Recommendation auto-adjusted for expected rainfall'
+        })
+    except Exception as e:
+        logger.error(f"Error in irrigation_advice: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/fertilizer-recommendation', methods=['POST'])
+def fertilizer_recommendation():
+    """Suggest NPK mix based on pH and crop."""
+    try:
+        data = request.get_json() or {}
+        crop = (data.get('crop') or 'general').lower()
+        ph = _safe_float(data.get('ph_value'), 7.0)
+        nitrogen = _safe_float(data.get('nitrogen'), 50)
+        phosphorus = _safe_float(data.get('phosphorus'), 50)
+        potassium = _safe_float(data.get('potassium'), 50)
+
+        base = {'n': 100, 'p': 60, 'k': 60}
+        if crop == 'rice':
+            base = {'n': 120, 'p': 60, 'k': 60}
+        elif crop == 'wheat':
+            base = {'n': 110, 'p': 55, 'k': 45}
+        elif crop == 'maize':
+            base = {'n': 150, 'p': 70, 'k': 70}
+
+        ph_factor = 1.1 if ph < 6.0 or ph > 7.8 else 1.0
+        rec_n = round(max(0, (base['n'] - nitrogen) * ph_factor), 1)
+        rec_p = round(max(0, (base['p'] - phosphorus) * ph_factor), 1)
+        rec_k = round(max(0, (base['k'] - potassium) * ph_factor), 1)
+
+        return jsonify({
+            'status': 'success',
+            'recommended_npk_kg_per_hectare': {'N': rec_n, 'P': rec_p, 'K': rec_k},
+            'split_plan': ['Basal dose: 40%', 'Vegetative stage: 35%', 'Pre-flowering: 25%']
+        })
+    except Exception as e:
+        logger.error(f"Error in fertilizer_recommendation: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/yield-prediction', methods=['POST'])
+def yield_prediction():
+    """Predict yield from NDVI and weather trend."""
+    try:
+        data = request.get_json() or {}
+        ndvi = _safe_float(data.get('ndvi'), 0.5)
+        rainfall = _safe_float(data.get('season_rainfall_mm'), 600)
+        temp = _safe_float(data.get('avg_temp'), 26)
+        area = max(0.1, _safe_float(data.get('area_hectares'), 1))
+
+        climate_factor = _clamp((rainfall / 700) * 0.5 + (1 - abs(temp - 27) / 20) * 0.5, 0.4, 1.2)
+        tons_per_ha = round(_clamp((ndvi * 8) * climate_factor, 1.0, 9.0), 2)
+        total_tons = round(tons_per_ha * area, 2)
+
+        return jsonify({
+            'status': 'success',
+            'predicted_tons_per_hectare': tons_per_ha,
+            'predicted_total_tons': total_tons,
+            'confidence_percent': round(_clamp(55 + ndvi * 40, 55, 95), 1)
+        })
+    except Exception as e:
+        logger.error(f"Error in yield_prediction: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/expense-profit-estimate', methods=['POST'])
+def expense_profit_estimate():
+    """Estimate farm profit from costs, yield and market rate."""
+    try:
+        data = request.get_json() or {}
+        seed = _safe_float(data.get('seed_cost'), 0)
+        fertilizer = _safe_float(data.get('fertilizer_cost'), 0)
+        labor = _safe_float(data.get('labor_cost'), 0)
+        irrigation = _safe_float(data.get('irrigation_cost'), 0)
+        expected_tons = _safe_float(data.get('expected_yield_tons'), 0)
+        market_rate = _safe_float(data.get('market_price_per_ton'), 0)
+
+        total_cost = round(seed + fertilizer + labor + irrigation, 2)
+        revenue = round(expected_tons * market_rate, 2)
+        profit = round(revenue - total_cost, 2)
+        margin = round((profit / revenue) * 100, 2) if revenue > 0 else 0
+
+        return jsonify({
+            'status': 'success',
+            'total_cost': total_cost,
+            'estimated_revenue': revenue,
+            'estimated_profit': profit,
+            'profit_margin_percent': margin
+        })
+    except Exception as e:
+        logger.error(f"Error in expense_profit_estimate: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/image-quality-check', methods=['POST'])
+def image_quality_check():
+    """Check uploaded image quality for blur/brightness before disease detection."""
+    try:
+        data = request.get_json() or {}
+        image = _decode_base64_image(data.get('image'))
+        if image is None:
+            return jsonify({'error': 'Invalid image payload'}), 400
+
+        gray = image.convert('L')
+        stat = ImageStat.Stat(gray)
+        brightness = stat.mean[0]
+        contrast = stat.stddev[0]
+
+        # Simple practical thresholds
+        brightness_score = _clamp((brightness / 255) * 100, 0, 100)
+        contrast_score = _clamp((contrast / 64) * 100, 0, 100)
+        quality_score = round((brightness_score * 0.45) + (contrast_score * 0.55), 1)
+
+        status = 'Good'
+        if quality_score < 40:
+            status = 'Poor'
+        elif quality_score < 65:
+            status = 'Fair'
+
+        return jsonify({
+            'status': 'success',
+            'quality_score': quality_score,
+            'quality_band': status,
+            'tips': [
+                'Capture image in daylight',
+                'Keep leaf in focus and fill most of the frame',
+                'Avoid shadows and motion blur'
+            ]
+        })
+    except Exception as e:
+        logger.error(f"Error in image_quality_check: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/iot-sensor-insights', methods=['POST'])
+def iot_sensor_insights():
+    """Analyze basic IoT sensor feed and return alert level."""
+    try:
+        data = request.get_json() or {}
+        soil_moisture = _safe_float(data.get('soil_moisture_percent'), 35)
+        air_temp = _safe_float(data.get('air_temp'), 30)
+        humidity = _safe_float(data.get('humidity'), 60)
+
+        alert = 'Normal'
+        if soil_moisture < 25 or air_temp > 38:
+            alert = 'High'
+        elif soil_moisture < 32 or air_temp > 34:
+            alert = 'Moderate'
+
+        return jsonify({
+            'status': 'success',
+            'alert_level': alert,
+            'actions': [
+                'Trigger irrigation if soil moisture drops below 30%',
+                'Increase monitoring frequency during hot hours',
+                'Log sensor data every 30 minutes'
+            ]
+        })
+    except Exception as e:
+        logger.error(f"Error in iot_sensor_insights: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/community-benchmark', methods=['POST'])
+def community_benchmark():
+    """Compare current farm metrics to a simple benchmark baseline."""
+    try:
+        data = request.get_json() or {}
+        ndvi = _safe_float(data.get('ndvi'), 0.5)
+        yield_tph = _safe_float(data.get('yield_tph'), 4)
+
+        return jsonify({
+            'status': 'success',
+            'benchmark': {
+                'regional_avg_ndvi': 0.56,
+                'regional_avg_yield_tph': 4.8
+            },
+            'your_position': {
+                'ndvi_delta': round(ndvi - 0.56, 3),
+                'yield_delta': round(yield_tph - 4.8, 2)
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error in community_benchmark: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/voice-assistant', methods=['POST'])
+def voice_assistant():
+    """Return multilingual assistant text response for app integration."""
+    try:
+        data = request.get_json() or {}
+        lang = (data.get('language') or 'en').lower()
+        intent = (data.get('intent') or 'general_help').lower()
+
+        responses = {
+            'en': {
+                'irrigation': 'Irrigate early morning and adjust by forecast rain.',
+                'disease': 'Upload a clear leaf image for more reliable disease detection.',
+                'general_help': 'Open Weather, Soil, or Disease section for guided analysis.'
+            },
+            'te': {
+                'irrigation': 'ఉదయం సేద్యం చేయండి. వర్ష సూచనను బట్టి నీరు తగ్గించండి.',
+                'disease': 'ఆకు ఫోటోను స్పష్టంగా తీసి అప్‌లోడ్ చేయండి.',
+                'general_help': 'Weather, Soil, Disease సెక్షన్లలో విశ్లేషణ చూడండి.'
+            },
+            'hi': {
+                'irrigation': 'सुबह सिंचाई करें और बारिश के पूर्वानुमान के अनुसार पानी कम करें।',
+                'disease': 'स्पष्ट पत्ते की फोटो अपलोड करें।',
+                'general_help': 'Weather, Soil और Disease सेक्शन में विश्लेषण देखें।'
+            }
+        }
+
+        lang_map = responses.get(lang, responses['en'])
+        message = lang_map.get(intent, lang_map['general_help'])
+
+        return jsonify({'status': 'success', 'language': lang, 'message': message})
+    except Exception as e:
+        logger.error(f"Error in voice_assistant: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin-analytics', methods=['GET'])
+def admin_analytics():
+    """Lightweight admin analytics summary."""
+    try:
+        users = User.query.count()
+        crop_records = CropData.query.count()
+        disease_records = DiseaseRecord.query.count()
+        boundaries = FieldBoundary.query.count()
+
+        return jsonify({
+            'status': 'success',
+            'summary': {
+                'total_users': users,
+                'total_crop_checks': crop_records,
+                'total_disease_scans': disease_records,
+                'total_saved_fields': boundaries
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error in admin_analytics: {e}")
         return jsonify({'error': str(e)}), 500
 
 

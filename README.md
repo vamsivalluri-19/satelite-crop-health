@@ -42,6 +42,25 @@ Built with modern web technologies for a responsive, intuitive farmer experience
 - Maintenance guides and soil health analysis
 - User authentication, profiles, and history tracking
 
+## Feature Roadmap (All Planned Features)
+
+- Real NDVI satellite integration (Sentinel/Landsat based)
+- Field boundary upload support (GeoJSON/KML)
+- Pest and disease risk forecasting
+- Irrigation advisory engine
+- Fertilizer recommendation module (soil and crop specific)
+- Yield prediction analytics
+- Multi-language interface (regional language support)
+- Mobile-first PWA with offline support
+- SMS and WhatsApp smart alerting
+- Image quality validation before disease detection
+- Farm expense and profit tracking
+- Admin analytics and system monitoring dashboard
+- Drone imagery integration
+- IoT sensor integration (soil moisture, temperature, humidity)
+- Farmer community benchmarking and trend sharing
+- Voice assistant support in local languages
+
 ## Tech Stack
 
 - Backend: Flask, Flask-SQLAlchemy, Flask-Session
@@ -129,12 +148,12 @@ requirements.txt
 
 - NDVI and disease detection are simulated for demo purposes.
 - Weather uses Open-Meteo (no API key required).
-- Google Maps requires a valid API key in the script tag in the HTML.
+- Weather map supports Google Maps when `GOOGLE_MAPS_API_KEY` is set, and falls back to OpenStreetMap if unavailable.
 
 ## Troubleshooting
 
 - Blank page: make sure `index.html` is in `frontend/static/templates` and the server is running.
-- Weather map not loading: check the Google Maps API key and network access.
+- Weather map not loading: set `GOOGLE_MAPS_API_KEY` (with Places API + billing + referrer allowed) or use built-in OpenStreetMap fallback.
 - Missing data: confirm the backend is running on port 5000.
 
 ## Deploy (Render - Free)

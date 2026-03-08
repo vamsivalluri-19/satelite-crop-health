@@ -96,6 +96,34 @@ class FieldBoundary(db.Model):
     area_hectares = db.Column(db.Float, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# User model for SQLAlchemy
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    first_name = db.Column(db.String(100))
+    last_name = db.Column(db.String(100))
+    crop_type = db.Column(db.String(100))
+    password_hash = db.Column(db.String(128), nullable=False)
+
+    def set_password(self, password):
+        self.password_hash = hash_password(password)
+
+    def check_password(self, password):
+        return self.password_hash == hash_password(password)
+        id = db.Column(db.Integer, primary_key=True)
+        username = db.Column(db.String(100), unique=True, nullable=False)
+        email = db.Column(db.String(100), unique=True, nullable=False)
+        first_name = db.Column(db.String(100))
+        last_name = db.Column(db.String(100))
+        crop_type = db.Column(db.String(100))
+        password_hash = db.Column(db.String(128), nullable=False)
+
+        def set_password(self, password):
+            self.password_hash = hash_password(password)
+
+        def check_password(self, password):
+            return self.password_hash == hash_password(password)
 # Initialize Database
 with app.app_context():
     try:

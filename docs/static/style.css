@@ -1,0 +1,201 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Font Awesome Fallback for Tracking Prevention */
+@font-face {
+    font-family: 'FontAwesome';
+    src: local("FontAwesome"), local("Font Awesome");
+}
+
+:root {
+    --primary: #2ecc71;
+    --secondary: #3498db;
+    --danger: #e74c3c;
+    --warning: #f39c12;
+    --success: #27ae60;
+    --info: #3498db;
+    --light: #ecf0f1;
+    --dark: #2c3e50;
+    --text: #34495e;
+    --white: #ffffff;
+    --gray-100: #f8f9fa;
+    --gray-200: #ecf0f1;
+    --gray-300: #bdc3c7;
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+    --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.2);
+    --font-body: 'Space Grotesk', 'Segoe UI', sans-serif;
+    --font-display: 'Fraunces', 'Georgia', serif;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: var(--font-body);
+    color: var(--text);
+    background-color: var(--gray-100);
+    background-image: radial-gradient(circle at 15% 15%, rgba(46, 204, 113, 0.12), transparent 45%),
+        radial-gradient(circle at 85% 10%, rgba(52, 152, 219, 0.12), transparent 40%),
+        radial-gradient(circle at 20% 80%, rgba(241, 196, 15, 0.08), transparent 35%);
+    line-height: 1.6;
+    overflow-x: hidden;
+}
+
+h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0.2px;
+}
+
+/* Authentication Pages */
+.auth-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    background-image: radial-gradient(circle at 10% 20%, rgba(255, 255, 255, 0.15), transparent 35%),
+        radial-gradient(circle at 90% 10%, rgba(255, 255, 255, 0.1), transparent 40%),
+        linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 2rem;
+}
+
+.auth-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+    align-items: center;
+}
+
+.auth-box {
+    background: var(--white);
+    border-radius: 12px;
+    padding: 3rem;
+    box-shadow: var(--shadow-lg);
+}
+
+.auth-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.auth-header h1 {
+    font-size: 2.5rem;
+    color: var(--primary);
+    margin-bottom: 0.5rem;
+}
+
+.auth-header p {
+    color: var(--gray-300);
+    font-size: 1.1rem;
+}
+
+.auth-form {
+    animation: slideUp 0.5s ease;
+}
+
+.auth-form h2 {
+    margin-bottom: 1.5rem;
+    color: var(--dark);
+}
+
+.auth-form .form-group {
+    margin-bottom: 1.5rem;
+}
+
+.auth-form label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--dark);
+    font-size: 0.95rem;
+}
+
+.auth-form input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 2px solid var(--gray-200);
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+.auth-form input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
+}
+
+.form-switch {
+    margin-top: 1rem;
+    text-align: center;
+    color: var(--gray-300);
+}
+
+.form-switch a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.form-switch a:hover {
+    text-decoration: underline;
+}
+
+.auth-side {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.auth-illustration {
+    text-align: center;
+    color: var(--white);
+}
+
+.farmer-image {
+    width: 300px;
+    height: 300px;
+    object-fit: cover;
+    border-radius: 15px;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+}
+
+.illustration-icon {
+    font-size: 4rem;
+    display: block;
+    margin-bottom: 1rem;
+}
+
+.auth-illustration h3 {
+    font-size: 1.8rem;
+    margin-bottom: 1rem;
+}
+
+.auth-illustration p {
+    font-size: 1.1rem;
+    opacity: 0.9;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Main App Layout */
+#app {
+    display: flex;
+}

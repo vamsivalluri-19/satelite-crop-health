@@ -1,8 +1,9 @@
 // API Configuration
-// Use deployed backend API for production, fallback to localhost for local dev
-const API_BASE_URL = (window.location.hostname === 'crop-health.onrender.com')
-    ? 'https://crop-health-api.onrender.com' // <-- Replace with your actual backend API URL
-    : (window.location.origin || 'http://localhost:5000');
+// Use deployed Streamlit backend for production
+const API_BASE_URL = 'https://satelite-crop-health-izfc5jvxvglaftex9sxnme.streamlit.app';
+
+// If you want to support local development, you can add:
+// const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://satelite-crop-health-izfc5jvxvglaftex9sxnme.streamlit.app';
 
 // Global State
 let currentUser = null;

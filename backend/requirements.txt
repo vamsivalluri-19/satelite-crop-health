@@ -1,7 +1,1 @@
-flask
-flask-cors
-gunicorn
-flask_sqlalchemy
-flask_session
-pymongo
-Pillow
+

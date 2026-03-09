@@ -15,6 +15,59 @@
 <body>
     <h1 style="color:#2563eb; font-size:2.5em; margin-top:1em;">satellite-crop-health</h1>
     <hr style="margin-bottom:2em;">
-    <!-- Add your main content below this line -->
+    <section style="max-width:900px;margin:auto;padding:2em;background:#fff;border-radius:12px;box-shadow:0 2px 8px #0001;">
+        <h2 style="color:#3498db;">Project Overview</h2>
+        <p>This platform provides real-time crop health monitoring using satellite data, weather integration, and AI-powered alerts. Designed for farmers, agronomists, and researchers to make data-driven decisions and improve yield.</p>
+        <h2 style="color:#3498db;margin-top:2em;">Features</h2>
+        <ul style="font-size:1.1em;line-height:2;">
+            <li>🌱 Satellite-based crop health visualization</li>
+            <li>🌦️ Live weather data integration</li>
+            <li>📊 Interactive charts and analytics</li>
+            <li>🔔 AI-powered alerts for disease and stress</li>
+            <li>🗺️ Map view for field monitoring</li>
+            <li>👤 User dashboard and reports</li>
+        </ul>
+        <div style="margin-top:2em;display:flex;gap:2em;flex-wrap:wrap;justify-content:center;">
+            <div style="flex:1;min-width:300px;">
+                <h3 style="color:#2ecc71;">Live Map (Demo)</h3>
+                <div id="map" style="height:250px;border-radius:8px;border:1px solid #eee;background:#ecf0f1;"></div>
+            </div>
+            <div style="flex:1;min-width:300px;">
+                <h3 style="color:#e74c3c;">Crop Health Chart (Demo)</h3>
+                <canvas id="cropChart" width="300" height="250" style="background:#ecf0f1;border-radius:8px;"></canvas>
+            </div>
+        </div>
+    </section>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Leaflet map demo
+        var map = L.map('map').setView([20.5937, 78.9629], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        L.marker([20.5937, 78.9629]).addTo(map).bindPopup('Sample Field Location').openPopup();
+        // Chart.js demo
+        var ctx = document.getElementById('cropChart').getContext('2d');
+        var cropChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                datasets: [{
+                    label: 'NDVI (Crop Health)',
+                    data: [0.6, 0.7, 0.8, 0.75, 0.72, 0.78],
+                    borderColor: '#2ecc71',
+                    backgroundColor: 'rgba(46,204,113,0.1)',
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: false,
+                scales: {
+                    y: { min: 0, max: 1 }
+                }
+            }
+        });
+    </script>
 </body>
 </html>

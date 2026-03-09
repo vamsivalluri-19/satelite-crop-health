@@ -4,6 +4,7 @@ import io
 import base64
 import random
 
+
 class CropDiseasePredictor:
     """
     Simple crop disease prediction model.
@@ -44,26 +45,45 @@ class CropDiseasePredictor:
     
     def predict(self, image_data):
         """
-        Predict crop disease from image
+        Predict crop disease from image using simple image statistics (demo only).
+        Always returns a disease result for any valid image.
         """
         try:
-            preprocessed = self.preprocess_image(image_data)
-            if preprocessed is None:
-                return {
-                    'disease': 'Unknown',
-                    'confidence': 0.0,
-                    'error': 'Could not process image'
-                }
-            
-            # Simulate model prediction
-            # In production, use actual trained model
-            disease_idx = random.randint(0, len(self.diseases) - 1)
-            disease = self.diseases[disease_idx]
-            confidence = round(random.uniform(0.7, 0.99), 3)
-            
-            # Generate treatment recommendations
+            # Accept file-like, bytes, or PIL Image
+            if hasattr(image_data, 'read'):
+                image = Image.open(image_data).convert('RGB')
+            elif isinstance(image_data, bytes):
+                image = Image.open(io.BytesIO(image_data)).convert('RGB')
+            elif isinstance(image_data, Image.Image):
+                image = image_data.convert('RGB')
+            else:
+                # Try to decode base64 string
+                if isinstance(image_data, str):
+                    try:
+                        image_array = base64.b64decode(image_data.split(',')[1])
+                        image = Image.open(io.BytesIO(image_array)).convert('RGB')
+                    except Exception:
+                        return {
+                            'disease': 'Unknown',
+                            'confidence': 0.0,
+                            'error': 'Could not process image',
+                            'status': 'error'
+                        }
+                else:
+                    return {
+                        'disease': 'Unknown',
+                        'confidence': 0.0,
+                        'error': 'Unsupported image format',
+                        'status': 'error'
+                    }
+            image = image.resize((224, 224))
+            from PIL import ImageStat
+            stat = ImageStat.Stat(image)
+            brightness = sum(stat.mean) / 3
+            idx = int(brightness / 256 * len(self.diseases)) % len(self.diseases)
+            disease = self.diseases[idx]
+            confidence = round(brightness / 255, 2)
             recommendations = self.get_treatments(disease)
-            
             return {
                 'disease': disease,
                 'confidence': confidence,
@@ -72,7 +92,7 @@ class CropDiseasePredictor:
             }
         except Exception as e:
             return {
-                'disease': 'Error',
+                'disease': 'Unknown',
                 'confidence': 0.0,
                 'error': str(e),
                 'status': 'error'
@@ -102,6 +122,12 @@ def predict_disease(image_data):
     Public function to predict disease from image
     """
     return predictor.predict(image_data)
+
+def train_disease(image_data, label=None):
+    """
+    Public function to train model with image and optional label
+    """
+    return predictor.train(image_data, label)
 
 def get_health_score(ndvi_value):
     """

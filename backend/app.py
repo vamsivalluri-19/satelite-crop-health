@@ -15,11 +15,11 @@ import secrets
 import json
 from PIL import Image, ImageStat
 
-# Use relative imports for backend modules
-from .satellite_data import get_ndvi, get_satellite_imagery
-from .weather_data import get_weather, get_weather_forecast
-from .ai_model import predict_disease, get_health_score
-from .alerts import send_disease_alert, send_health_alert
+# Use local imports for direct execution
+from satellite_data import get_ndvi, get_satellite_imagery
+from weather_data import get_weather, get_weather_forecast
+from ai_model import predict_disease, get_health_score
+from alerts import send_disease_alert, send_health_alert
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

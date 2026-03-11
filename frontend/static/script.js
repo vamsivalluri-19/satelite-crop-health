@@ -1,6 +1,6 @@
 // API Configuration
 // Use deployed Streamlit backend for production
-const API_BASE_URL = 'http://10.57.3.44:5000';
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:5000' : 'http://10.57.3.44:5000';
 
 // If you want to support local development, you can add:
 // const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://satelite-crop-health-izfc5jvxvglaftex9sxnme.streamlit.app';

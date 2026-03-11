@@ -77,12 +77,13 @@ class CropDiseasePredictor:
                         'status': 'error'
                     }
             image = image.resize((224, 224))
-            from PIL import ImageStat
-            stat = ImageStat.Stat(image)
-            brightness = sum(stat.mean) / 3
-            idx = int(brightness / 256 * len(self.diseases)) % len(self.diseases)
+            # Demo: randomize disease result for each image
+            import hashlib
+            image_bytes = image.tobytes()
+            image_hash = hashlib.md5(image_bytes).hexdigest()
+            idx = int(image_hash, 16) % len(self.diseases)
             disease = self.diseases[idx]
-            confidence = round(brightness / 255, 2)
+            confidence = round(random.uniform(0.6, 0.95), 2)
             recommendations = self.get_treatments(disease)
             return {
                 'disease': disease,
